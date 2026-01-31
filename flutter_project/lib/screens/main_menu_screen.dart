@@ -91,7 +91,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   borderRadius: BorderRadius.circular(16),
                    boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -155,7 +155,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         elevation: 8,
-        shadowColor: color.withOpacity(0.4),
+        shadowColor: color.withValues(alpha: 0.4),
       ),
       child: Column(
         children: [
@@ -171,7 +171,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             subtitle,
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
             ),
           ),
         ],

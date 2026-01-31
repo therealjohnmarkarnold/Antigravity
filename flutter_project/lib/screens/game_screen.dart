@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../country_service.dart';
 import 'game_over_screen.dart';
+import '../widgets/world_map_widget.dart';
 
 class GameScreen extends StatefulWidget {
   final bool isHardMode;
@@ -34,7 +36,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   // Animations
   late AnimationController _shakeController;
-  late Animation<double> _shakeAnimation;
+
   late AnimationController _scaleController;
   late Animation<double> _scaleAnimation;
 
@@ -52,9 +54,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-    _shakeAnimation = Tween<double>(begin: 0.0, end: 10.0)
-        .chain(CurveTween(curve: Curves.elasticIn))
-        .animate(_shakeController);
+
 
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -233,20 +233,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         width: double.infinity,
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.6),
+                          color: Colors.white.withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(color: Colors.white, width: 2),
                         ),
-                        child: SvgPicture.network(
-                          'https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${_targetCountry.cca2}/vector.svg',
-                          fit: BoxFit.contain,
-                          // Only apply ColorFilter if Hard Mode
-                          colorFilter: widget.isHardMode 
-                              ? const ColorFilter.mode(Colors.black, BlendMode.srcIn)
-                              : null,
-                          placeholderBuilder: (_) => const Center(child: CircularProgressIndicator()),
-                        ),
+                        child: widget.isHardMode 
+                            ? SvgPicture.network(
+                                'https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${_targetCountry.cca2}/vector.svg',
+                                fit: BoxFit.contain,
+                                colorFilter: const ColorFilter.mode(Colors.black, BlendMode.srcIn),
+                                placeholderBuilder: (_) => const Center(child: CircularProgressIndicator()),
+                              )
+                            : WorldMapWidget(targetCode: _targetCountry.cca2),
                       ),
+
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -334,17 +334,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.network(
-                  country.flagUrl,
-                  height: 32,
-                  width: 48,
-                  fit: BoxFit.cover,
-                  errorBuilder: (c, o, s) => const Icon(Icons.flag, size: 32),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFF1F2937), width: 1), // Off-black border for accessibility
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: Image.network(
+                    country.flagUrl,
+                    height: 50, // Increased size
+                    width: 75,
+                    fit: BoxFit.cover,
+                    errorBuilder: (c, o, s) => const Icon(Icons.flag, size: 50),
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(

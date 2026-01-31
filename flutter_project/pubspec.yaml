@@ -14,6 +14,8 @@ dependencies:
   flutter_svg: ^2.0.9
   google_fonts: ^8.0.0
   shared_preferences: ^2.5.4
+  xml: ^6.6.1
+  path_drawing: ^1.0.1
 
 dev_dependencies:
   flutter_test:
@@ -25,6 +27,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/
+    - assets/world-map.svg
 
 flutter_launcher_icons:
   android: "ic_launcher"
