@@ -1,0 +1,26 @@
+# System
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.packages
+**/.pub/
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/App.framework
+**/android/.gradle
+**/android/local.properties
+
+# Node / Web
+node_modules/
+npm-debug.log
