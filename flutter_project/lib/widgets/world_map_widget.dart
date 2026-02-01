@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:path_drawing/path_drawing.dart';
-import 'package:xml/xml.dart'; // Upgrade to xml 6.x usage if needed
+import 'package:xml/xml.dart';
 
 class WorldMapWidget extends StatefulWidget {
   final String targetCode;
@@ -14,130 +13,158 @@ class WorldMapWidget extends StatefulWidget {
 }
 
 class _WorldMapWidgetState extends State<WorldMapWidget> {
-  Future<MapData>? _mapDataFuture;
+  Future<String>? _svgFuture;
+  final TransformationController _transformationController = TransformationController();
+  double _currentZoom = 1.0;
+  final double _minZoom = 1.0;
+  final double _maxZoom = 10.0;
 
   @override
   void initState() {
     super.initState();
-    _mapDataFuture = _processMap();
+    _svgFuture = _loadSvg();
+    _transformationController.addListener(_onMapInteraction);
   }
-  
+
   @override
-  void didUpdateWidget(WorldMapWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.targetCode != widget.targetCode) {
-      _mapDataFuture = _processMap();
+  void dispose() {
+    _transformationController.removeListener(_onMapInteraction);
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  void _onMapInteraction() {
+    final scale = _transformationController.value.getMaxScaleOnAxis();
+    if (scale != _currentZoom) {
+      if (mounted) {
+        setState(() {
+          _currentZoom = scale.clamp(_minZoom, _maxZoom);
+        });
+      }
     }
   }
 
-  Future<MapData> _processMap() async {
+  Future<String> _loadSvg() async {
     final String rawSvg = await rootBundle.loadString('assets/world-map.svg');
     final document = XmlDocument.parse(rawSvg);
     
-    // Find target element
+    // Highlight target
     final String code = widget.targetCode.toLowerCase();
-    XmlElement? targetElement;
     
-    // Search by ID 
-    // Note: This matches the JS logic: lowercase check
+    // Find and style element
+    XmlElement? targetElement;
     for (var element in document.findAllElements('path')) {
-      final id = element.getAttribute('id')?.toLowerCase();
-      if (id == code) {
+      if (element.getAttribute('id')?.toLowerCase() == code) {
         targetElement = element;
         break;
       }
     }
-    
-    // Also check 'g' tags if individual path not found (some maps group islands)
     if (targetElement == null) {
-       for (var element in document.findAllElements('g')) {
-          final id = element.getAttribute('id')?.toLowerCase();
-          if (id == code) {
-            targetElement = element;
-            break;
-          }
-       }
+      for (var element in document.findAllElements('g')) {
+        if (element.getAttribute('id')?.toLowerCase() == code) {
+          targetElement = element;
+          break;
+        }
+      }
     }
 
-    Rect bounds = Rect.zero;
-    
     if (targetElement != null) {
-      // Highlight: Set fill color
       targetElement.setAttribute('style', 'fill: #EF4444; stroke: white; stroke-width: 0.5;');
-      // Or set explicit attributes if style string parsing is complex for SvgPicture
-      // Usually SvgPicture respects inline styles well.
-      
-      // Calculate Bounds
-      // If it's a group, we might need to iterate children. For simplicity, let's look for 'd' in the element or first child path.
-      String? dPath;
-      if (targetElement.name.local == 'path') {
-        dPath = targetElement.getAttribute('d');
-      } else {
-        // Find first path in group
-        final firstPath = targetElement.findElements('path').firstOrNull;
-        dPath = firstPath?.getAttribute('d');
-      }
-      
-      if (dPath != null) {
-         try {
-           final Path path = parseSvgPathData(dPath);
-           bounds = path.getBounds();
-         } catch (e) {
-           debugPrint("Error parsing path bounds: $e");
-         }
-      }
+    } else {
+        debugPrint("Could not find country code: $code");
     }
 
-    if (bounds != Rect.zero) {
-      // Calculate new ViewBox
-      final double padding = 1.2; // 120%
-      final double minSize = 30.0; // Allow microstates to zoom in
-      
-      double width = bounds.width * padding;
-      double height = bounds.height * padding;
-      
-      if (width < minSize) width = minSize;
-      if (height < minSize) height = minSize;
-      
-      final double cx = bounds.center.dx;
-      final double cy = bounds.center.dy;
-      
-      final double x = cx - (width / 2);
-      final double y = cy - (height / 2);
-      
-      // Update SVG viewBox
-      final root = document.rootElement;
-      root.setAttribute('viewBox', '$x $y $width $height');
-    }
+    // Return modified SVG string directly - no viewbox manipulation
+    return document.toXmlString();
+  }
 
-    return MapData(
-      svgContent: document.toXmlString(),
-      targetBounds: bounds,
-    );
+  void _onSliderChanged(double value) {
+    setState(() {
+      _currentZoom = value;
+    });
+    
+    // Zoom to center (simplified) or maintain current center
+    // For now, simple scaling from identity matrix
+    final Matrix4 newMatrix = Matrix4.diagonal3Values(value, value, 1.0);
+    _transformationController.value = newMatrix;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<MapData>(
-      future: _mapDataFuture,
+    return FutureBuilder<String>(
+      future: _svgFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        
-        return SvgPicture.string(
-          snapshot.data!.svgContent,
-          fit: BoxFit.contain,
-          placeholderBuilder: (_) => const Center(child: CircularProgressIndicator()),
+
+        return Stack(
+          children: [
+            // Map
+            InteractiveViewer(
+              transformationController: _transformationController,
+              minScale: _minZoom,
+              maxScale: _maxZoom,
+              panEnabled: true,
+              scaleEnabled: true,
+              child: SvgPicture.string(
+                snapshot.data!,
+                fit: BoxFit.contain,
+                width: double.infinity,
+                height: double.infinity,
+                placeholderBuilder: (_) => const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+            
+            // Zoom Slider
+            Positioned(
+              right: 8,
+              top: 20,
+              bottom: 20,
+              child: Container(
+                width: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                       color: Colors.black.withValues(alpha: 0.1),
+                       blurRadius: 4,
+                    )
+                  ]
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.add, size: 20, color: Colors.black54),
+                    Expanded(
+                      child: RotatedBox(
+                        quarterTurns: 3,
+                        child: SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 4,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                          ),
+                          child: Slider(
+                            value: _currentZoom,
+                            min: _minZoom,
+                            max: _maxZoom,
+                            activeColor: Colors.blueAccent,
+                            inactiveColor: Colors.grey[300],
+                            onChanged: _onSliderChanged,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.remove, size: 20, color: Colors.black54),
+                  ],
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
   }
 }
-
-class MapData {
-  final String svgContent;
-  final Rect targetBounds;
-  MapData({required this.svgContent, required this.targetBounds});
-}
-

@@ -100,10 +100,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   
   void _endGame() {
     _timer?.cancel();
-    Navigator.pushReplacement(
+    Navigator.push(
       context, 
       MaterialPageRoute(builder: (context) => GameOverScreen(score: _score))
-    );
+    ).then((_) {
+      // When GameOver pops, we also want to pop GameScreen to return to Menu
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    });
   }
 
   @override
