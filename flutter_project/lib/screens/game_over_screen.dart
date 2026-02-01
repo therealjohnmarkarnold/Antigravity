@@ -15,19 +15,23 @@ class _GameOverScreenState extends State<GameOverScreen> {
   final StorageService _storage = StorageService();
   bool _isNewHighScore = false;
 
+  Future<void>? _saveFuture;
+
   @override
   void initState() {
     super.initState();
-    _checkHighScore();
+    _saveFuture = _checkHighScore();
   }
 
   Future<void> _checkHighScore() async {
     final int currentHigh = await _storage.getHighScore();
     if (widget.score > currentHigh) {
       await _storage.saveHighScore(widget.score);
-      setState(() {
-        _isNewHighScore = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isNewHighScore = true;
+        });
+      }
     }
   }
 
@@ -114,9 +118,14 @@ class _GameOverScreenState extends State<GameOverScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    // Navigate back to menu
-                    Navigator.pop(context);
+                  onPressed: () async {
+                    // Ensure save is complete before returning
+                    if (_saveFuture != null) {
+                      await _saveFuture;
+                    }
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blueAccent,

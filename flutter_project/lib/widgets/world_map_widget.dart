@@ -90,8 +90,8 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
 
     if (bounds != Rect.zero) {
       // Calculate new ViewBox
-      final double padding = 1.5; // 150%
-      final double minSize = 250.0;
+      final double padding = 1.2; // 120%
+      final double minSize = 30.0; // Allow microstates to zoom in
       
       double width = bounds.width * padding;
       double height = bounds.height * padding;
