@@ -45,6 +45,7 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.targetCode != widget.targetCode) {
        _currentZoom = 2.5; // Reset zoom for new question
+       _transformationController.value = Matrix4.identity(); // Reset view to trigger auto-zoom
        _svgFuture = _loadAndProcessSvg();
     }
   }
@@ -77,20 +78,34 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
     if (targetElement != null) {
       targetElement.setAttribute('style', 'fill: #EF4444; stroke: white; stroke-width: 0.5;');
       
-      String? dPath;
+      List<String> paths = [];
       if (targetElement.name.local == 'path') {
-        dPath = targetElement.getAttribute('d');
+        final d = targetElement.getAttribute('d');
+        if (d != null) paths.add(d);
       } else {
-        final firstPath = targetElement.findElements('path').firstOrNull;
-        dPath = firstPath?.getAttribute('d');
+        // It's a group, gather all child paths
+        // Use recursive find if needed, closely matching structure
+        for (var child in targetElement.findAllElements('path')) {
+           final d = child.getAttribute('d');
+           if (d != null) paths.add(d);
+        }
       }
       
-      if (dPath != null) {
+      if (paths.isEmpty) {
+         debugPrint("No paths found for country code: $code");
+      }
+
+      for (var d in paths) {
          try {
-           final Path path = parseSvgPathData(dPath);
-           bounds = path.getBounds();
+           final Path path = parseSvgPathData(d);
+           final Rect pathBounds = path.getBounds();
+           if (bounds == Rect.zero) {
+             bounds = pathBounds;
+           } else {
+             bounds = bounds.expandToInclude(pathBounds);
+           }
          } catch (e) {
-           debugPrint("Error parsing path bounds: $e");
+           debugPrint("Error parsing path data: $e");
          }
       }
     } else {
@@ -99,14 +114,9 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
 
     _targetBounds = bounds;
     
-    // If we have bounds and viewport is ready, apply initial zoom
-    if (_targetBounds != Rect.zero && _viewportCenter != Offset.zero) {
-        // Enqueue update to run after build
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-            _updateMatrix();
-        });
-    }
-
+    // Bounds calculated. _updateMatrix will be triggered by LayoutBuilder if needed,
+    // or next time we slide.
+    
     return document.toXmlString();
   }
 
@@ -135,12 +145,19 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
   void _updateMatrix() {
       if (_targetBounds == Rect.zero) return;
       
-      final Offset targetCenter = _targetBounds.center;
+      // The SVG has a viewBox offset. We must subtract this to get the visual coordinate
+      // relative to the top-left of the SvgPicture (0,0).
+      // ViewBox: x=30.767, y=241.591
+      const double offsetX = 30.767;
+      const double offsetY = 241.591;
       
-      // M = Translate(ViewportCenter) * Scale(zoom) * Translate(-TargetCenter)
+      final Offset rawCenter = _targetBounds.center;
+      final Offset correctedCenter = Offset(rawCenter.dx - offsetX, rawCenter.dy - offsetY);
+      
+      // M = Translate(ViewportCenter) * Scale(zoom) * Translate(-CorrectedCenter)
       final Matrix4 matrix = Matrix4.translationValues(_viewportCenter.dx, _viewportCenter.dy, 0)
         ..multiply(Matrix4.diagonal3Values(_currentZoom, _currentZoom, 1.0))
-        ..multiply(Matrix4.translationValues(-targetCenter.dx, -targetCenter.dy, 0));
+        ..multiply(Matrix4.translationValues(-correctedCenter.dx, -correctedCenter.dy, 0));
 
       _transformationController.value = matrix;
   }
@@ -151,6 +168,13 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
       builder: (context, constraints) {
         // Update viewport center
         _viewportCenter = Offset(constraints.maxWidth / 2, constraints.maxHeight / 2);
+        
+        // If we have bounds but haven't zoomed yet (or just need to refresh center), check logic
+        if (_targetBounds != Rect.zero) {
+           if (_transformationController.value == Matrix4.identity()) {
+               WidgetsBinding.instance.addPostFrameCallback((_) => _updateMatrix());
+           }
+        }
         
         return FutureBuilder<String>(
           future: _svgFuture,
@@ -168,17 +192,12 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
                   panEnabled: true,
                   scaleEnabled: true,
                   constrained: false, // Allow map to be larger than screen
-                  // We need to ensure the SVG is large enough to be zoomed. 
-                  // SvgPicture.string usually fits to parent. 
-                  // Let's force a large canvas size or fit=none if we want absolute coords.
-                  // BUT: The path data is in specific coordinate space (approx 1000x500 for world map).
-                  // If we use fit: BoxFit.none, it draws at 1:1 scale of the SVG coordinates.
-                  // Then our matrix calculations work directly on those coordinates.
+                  // Use EXACT dimensions from the SVG to ensure 1:1 mapping with path coordinates
                   child: SvgPicture.string(
                     snapshot.data!,
                     fit: BoxFit.none, 
-                    width: 1010, // Approx size of the loaded world map SVG
-                    height: 666,
+                    width: 784.077, 
+                    height: 458.627,
                     placeholderBuilder: (_) => const Center(child: CircularProgressIndicator()),
                   ),
                 ),
