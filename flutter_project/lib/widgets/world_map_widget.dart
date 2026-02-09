@@ -44,8 +44,8 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
   void didUpdateWidget(WorldMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.targetCode != widget.targetCode) {
-       _currentZoom = 2.5; // Reset zoom for new question
-       _transformationController.value = Matrix4.identity(); // Reset view to trigger auto-zoom
+       // Reset zoom will be handled by _updateMatrix calculating a new auto-zoom
+       _transformationController.value = Matrix4.identity(); 
        _svgFuture = _loadAndProcessSvg();
     }
   }
@@ -76,15 +76,21 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
     // 2. Highlight & Calculate Bounds
     Rect bounds = Rect.zero;
     if (targetElement != null) {
-      targetElement.setAttribute('style', 'fill: #EF4444; stroke: white; stroke-width: 0.5;');
+      const String highlightStyle = 'fill: #EF4444; stroke: white; stroke-width: 0.5;';
+      targetElement.setAttribute('style', highlightStyle);
+      
+      // Recursive style application for groups to ensure all parts highlight
+      if (targetElement.name.local == 'g') {
+         for (var child in targetElement.findAllElements('path')) {
+            child.setAttribute('style', highlightStyle);
+         }
+      }
       
       List<String> paths = [];
       if (targetElement.name.local == 'path') {
         final d = targetElement.getAttribute('d');
         if (d != null) paths.add(d);
       } else {
-        // It's a group, gather all child paths
-        // Use recursive find if needed, closely matching structure
         for (var child in targetElement.findAllElements('path')) {
            final d = child.getAttribute('d');
            if (d != null) paths.add(d);
@@ -95,14 +101,17 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
          debugPrint("No paths found for country code: $code");
       }
 
+      double maxArea = -1.0;
+      
       for (var d in paths) {
          try {
            final Path path = parseSvgPathData(d);
            final Rect pathBounds = path.getBounds();
-           if (bounds == Rect.zero) {
+           
+           final double area = pathBounds.width * pathBounds.height;
+           if (area > maxArea) {
+             maxArea = area;
              bounds = pathBounds;
-           } else {
-             bounds = bounds.expandToInclude(pathBounds);
            }
          } catch (e) {
            debugPrint("Error parsing path data: $e");
@@ -114,18 +123,12 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
 
     _targetBounds = bounds;
     
-    // Bounds calculated. _updateMatrix will be triggered by LayoutBuilder if needed,
-    // or next time we slide.
-    
     return document.toXmlString();
   }
 
   void _onMapInteraction() {
-     // Optional: If user manually pans, we could update _currentZoom or allow "free mode".
-     // For now, let's keep _currentZoom in sync with manual scale gestures
      final scale = _transformationController.value.getMaxScaleOnAxis();
       if (scale != _currentZoom) {
-         // Debounce or check mount
          if (mounted) {
            setState(() {
              _currentZoom = scale.clamp(_minZoom, _maxZoom);
@@ -138,22 +141,51 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
     setState(() {
       _currentZoom = value;
     });
-    _updateMatrix();
+    _updateMatrix(manualOverride: true);
   }
   
-  // The Core Logic: Pin Zoom to Target Center
-  void _updateMatrix() {
+  // The Core Logic: Pin Zoom to Target Center with Dynamic Scale
+  void _updateMatrix({bool manualOverride = false}) {
       if (_targetBounds == Rect.zero) return;
       
-      // The SVG has a viewBox offset. We must subtract this to get the visual coordinate
-      // relative to the top-left of the SvgPicture (0,0).
-      // ViewBox: x=30.767, y=241.591
+      // ViewBox offset from SVG
       const double offsetX = 30.767;
       const double offsetY = 241.591;
       
       final Offset rawCenter = _targetBounds.center;
       final Offset correctedCenter = Offset(rawCenter.dx - offsetX, rawCenter.dy - offsetY);
       
+      // Calculate Dynamic Auto-Zoom if this is an initial update (not slider interaction)
+      if (!manualOverride && _viewportCenter != Offset.zero) {
+        // Goal: Target bounds should fill ~75% of the shortest viewport dimension
+        // Bounds dimensions are in SVG space (784x458 base)
+        
+        final double targetW = _targetBounds.width;
+        final double targetH = _targetBounds.height;
+        
+        if (targetW > 0 && targetH > 0) {
+             // Screen dimensions (viewport)
+             final double screenW = _viewportCenter.dx * 2;
+             final double screenH = _viewportCenter.dy * 2;
+             
+             // Scale factors to fit width/height
+             final double scaleW = (screenW * 0.75) / targetW;
+             final double scaleH = (screenH * 0.75) / targetH;
+             
+             // Use the smaller scale to ensure it fits (contain)
+             double optimalZoom = (scaleW < scaleH) ? scaleW : scaleH;
+             
+             // Apply and clamp
+             _currentZoom = optimalZoom.clamp(_minZoom, _maxZoom);
+             
+             // Notify the slider if we need to update state? 
+             // Since we modify _currentZoom directly here, setState isn't strictly needed for the transform,
+             // but if the Slider widget depends on it, we might want to schedule a rebuild.
+             // However, strictly inside this method which is called post-frame, we should avoid setState loop.
+             // But let's assume _currentZoom is read by the slider build.
+        }
+      }
+
       // M = Translate(ViewportCenter) * Scale(zoom) * Translate(-CorrectedCenter)
       final Matrix4 matrix = Matrix4.translationValues(_viewportCenter.dx, _viewportCenter.dy, 0)
         ..multiply(Matrix4.diagonal3Values(_currentZoom, _currentZoom, 1.0))
@@ -166,13 +198,11 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Update viewport center
         _viewportCenter = Offset(constraints.maxWidth / 2, constraints.maxHeight / 2);
         
-        // If we have bounds but haven't zoomed yet (or just need to refresh center), check logic
         if (_targetBounds != Rect.zero) {
            if (_transformationController.value == Matrix4.identity()) {
-               WidgetsBinding.instance.addPostFrameCallback((_) => _updateMatrix());
+               WidgetsBinding.instance.addPostFrameCallback((_) => _updateMatrix(manualOverride: false));
            }
         }
         
@@ -191,8 +221,7 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
                   maxScale: _maxZoom,
                   panEnabled: true,
                   scaleEnabled: true,
-                  constrained: false, // Allow map to be larger than screen
-                  // Use EXACT dimensions from the SVG to ensure 1:1 mapping with path coordinates
+                  constrained: false, 
                   child: SvgPicture.string(
                     snapshot.data!,
                     fit: BoxFit.none, 

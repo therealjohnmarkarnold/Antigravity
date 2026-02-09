@@ -1,7 +1,7 @@
 name: flag_master
 description: A fun flag matching game to learn world flags.
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.0.2+1
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -28,6 +28,7 @@ flutter:
   assets:
     - assets/icon/
     - assets/world-map.svg
+    - assets/countries.json
 
 flutter_launcher_icons:
   android: "ic_launcher"
