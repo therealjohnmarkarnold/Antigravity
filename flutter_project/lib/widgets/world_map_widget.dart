@@ -58,15 +58,17 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
     XmlElement? targetElement;
     
     // 1. Find Element
+    final String resolvedCode = _resolveCode(code);
+    
     for (var element in document.findAllElements('path')) {
-      if (element.getAttribute('id')?.toLowerCase() == code) {
+      if (element.getAttribute('id')?.toLowerCase() == resolvedCode) {
         targetElement = element;
         break;
       }
     }
     if (targetElement == null) {
       for (var element in document.findAllElements('g')) {
-        if (element.getAttribute('id')?.toLowerCase() == code) {
+        if (element.getAttribute('id')?.toLowerCase() == resolvedCode) {
           targetElement = element;
           break;
         }
@@ -98,7 +100,7 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
       }
       
       if (paths.isEmpty) {
-         debugPrint("No paths found for country code: $code");
+         debugPrint("No paths found for country code: $code (resolved: $resolvedCode)");
       }
 
       double maxArea = -1.0;
@@ -118,7 +120,8 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
          }
       }
     } else {
-       debugPrint("Could not find country code: $code");
+    } else {
+       debugPrint("Could not find country code: $code (resolved: $resolvedCode). Check SVG IDs.");
     }
 
     _targetBounds = bounds;
@@ -142,6 +145,17 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
       _currentZoom = value;
     });
     _updateMatrix(manualOverride: true);
+  }
+  
+  // Handle aliases for countries not in the SVG or needing remapping
+  String _resolveCode(String code) {
+    const Map<String, String> aliases = {
+      'xk': 'rs', // Kosovo -> Serbia (in this map data)
+      'ps': 'il', // Palestine -> Israel (in this map data)
+      'va': 'it', // Vatican City -> Italy (in this map data)
+      'ax': 'fi', // Aland Islands -> Finland
+    };
+    return aliases[code] ?? code;
   }
   
   // The Core Logic: Pin Zoom to Target Center with Dynamic Scale
@@ -169,8 +183,9 @@ class _WorldMapWidgetState extends State<WorldMapWidget> {
              final double screenH = _viewportCenter.dy * 2;
              
              // Scale factors to fit width/height
-             final double scaleW = (screenW * 0.75) / targetW;
-             final double scaleH = (screenH * 0.75) / targetH;
+             // Target ~25% of view area -> 0.5 of linear dimension
+             final double scaleW = (screenW * 0.50) / targetW;
+             final double scaleH = (screenH * 0.50) / targetH;
              
              // Use the smaller scale to ensure it fits (contain)
              double optimalZoom = (scaleW < scaleH) ? scaleW : scaleH;
